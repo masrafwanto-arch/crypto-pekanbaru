@@ -1,54 +1,52 @@
 import streamlit as st
-import gspread
 import pandas as pd
-from google.oauth2.service_account import Credentials
-from datetime import datetime
-from zoneinfo import ZoneInfo
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import time
 
-st.set_page_config(page_title="Crypto Pekanbaru Pro", layout="wide")
-st.title("📈 LIVE CRYPTO - Pekanbaru")
-st.caption("Data LIVE dari Google Sheet: data test gspread")
+st.set_page_config(page_title="Crypto Pekanbaru Final", layout="wide")
+st.title("📈 Crypto Pekanbaru - LAPORAN FINAL 24 JAM")
+st.caption("Trigger OFF di 19:41 WIB - Data Final 26-27 Sep 2026")
 
-@st.cache_data(ttl=30)
-def load_data():
-    creds_dict = dict(st.secrets["gspread_creds"])
-    if "\\n" in creds_dict["private_key"]:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-    scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-    client = gspread.authorize(creds)
-    try:
-        sheet = client.open('data test gspread').worksheet('GRAFIK')
-    except:
-        sheet = client.open('data test gspread').sheet1
-    data = sheet.get_all_records()
-    return pd.DataFrame(data)
+# KONEKSI SHEET
+scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gspread"], scope)
+client = gspread.authorize(creds)
+sheet = client.open("data test gspread").worksheet("GRAFIK")
+data = sheet.get_all_records()
+df = pd.DataFrame(data)
 
-# INI YANG BIKIN OTOMATIS UPDATE BUAT SEMUA ORANG - GAK PERLU KLIK REFRESH
-@st.fragment(run_every=60)
-def show_live():
-    df = load_data()
-    df['Waktu'] = pd.to_datetime(df['Waktu'], errors='coerce')
-    df = df.dropna(subset=['Waktu'])
-    df = df.sort_values('Waktu', ascending=False)
+st.write(f"Total data final: {len(df)} baris - Berhenti jam 19:41")
+st.dataframe(df.tail(20), width='stretch')
 
-    wib = ZoneInfo("Asia/Jakarta")
-    now_wib = datetime.now(wib).strftime("%Y-%m-%d %H:%M:%S WIB")
-    latest = df.iloc[0]['Waktu']
+# GRAFIK
+if not df.empty:
+    # coba bersihin Harga IDR biar jadi angka
+    df['Harga_num'] = df['Harga IDR'].astype(str).str.replace('Rp','').str.replace(',','').str.replace('.','').str.strip()
+    df['Harga_num'] = pd.to_numeric(df['Harga_num'], errors='coerce')
+    st.line_chart(df, x="Waktu", y="Harga_num", color="Koin")
 
-    st.success(f"✅ LIVE - {len(df)} data | Update terakhir: {latest} | Jam: {now_wib} | Auto-update 60 detik")
+# AI RINGKASAN - INI YANG LU CARI
+st.divider()
+st.subheader("🤖 AI Ringkasan Otomatis 24 Jam - FINAL")
+st.info("Ini ringkasan dari data final yang berhenti jam 19:41")
 
-    st.dataframe(df.head(100), use_container_width=True)
+for koin in df['Koin'].unique():
+    d = df[df['Koin']==koin]
+    awal = d.iloc[0]['Harga IDR']
+    akhir = d.iloc[-1]['Harga IDR']
+    d_num = d['Harga_num']
+    if len(d_num.dropna()) > 1:
+        awal_n = d_num.iloc[0]
+        akhir_n = d_num.iloc[-1]
+        persen = (akhir_n - awal_n) / awal_n * 100 if awal_n!=0 else 0
+        high = d_num.max()
+        low = d_num.min()
+        st.success(f"**{koin}** {'NAIK 🟢' if persen>0 else 'TURUN 🔴'} {persen:.2f}% | Awal: Rp{awal_n:,.0f} -> Akhir: Rp{akhir_n:,.0f} | High: Rp{high:,.0f} | Low: Rp{low:,.0f}")
+    else:
+        st.warning(f"{koin}: {awal} -> {akhir}")
 
-    for koin in df['Koin'].unique():
-        st.subheader(f"Grafik {koin}")
-        d = df[df['Koin']==koin].sort_values('Waktu')
-        harga_col = 'Harga_IDR' if 'Harga_IDR' in d.columns else 'Harga_Rp' if 'Harga_Rp' in d.columns else d.columns[2]
-        st.line_chart(d.sort_values('Waktu').set_index('Waktu')[harga_col])
-
-show_live()
-
-st.caption("Halaman ini update otomatis tiap 60 detik untuk semua viewer")
+st.divider()
+st.write("Halaman ini update otomatis tiap 60 detik")
 if st.button("🔄 Refresh Manual"):
-    st.cache_data.clear()
     st.rerun()
